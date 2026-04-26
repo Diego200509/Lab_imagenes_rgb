@@ -33,7 +33,12 @@ from ..nucleo.procesamiento_imagen import (
     separar_canales_rgb,
     unir_canales_rgb,
 )
-from .componentes import DATOS_CANAL, TarjetaControlCanal, TarjetaImagen
+from .componentes import (
+    DATOS_CANAL,
+    TarjetaControlCanal,
+    TarjetaImagen,
+    VentanaHistogramasAmpliados,
+)
 from .estilos import HOJA_ESTILOS
 from .iconos import icono_cargar, icono_reiniciar
 
@@ -42,16 +47,18 @@ class VentanaLaboratorioRGB(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Laboratorio RGB")
-        self.resize(1440, 900)
+        self.resize(1200, 820)
 
         self.ruta_cargada: Path | None = None
         self.imagen_original: np.ndarray | None = None
         self.canales_originales: dict[str, np.ndarray] = {}
         self.histogramas_originales: dict[str, np.ndarray] = {}
+        self.histogramas_modificados: dict[str, np.ndarray] = {}
         self.canales_modificados: dict[str, np.ndarray] = {}
         self.imagen_reconstruida: np.ndarray | None = None
         self.imagen_reducida: np.ndarray | None = None
         self.imagen_binaria: np.ndarray | None = None
+        self.ventana_histogramas_ampliados: VentanaHistogramasAmpliados | None = None
         self._procesamiento_suspendido = False
 
         self.temporizador_procesamiento = QTimer(self)
@@ -117,6 +124,11 @@ class VentanaLaboratorioRGB(QMainWindow):
         self.boton_reiniciar.setIcon(icono_reiniciar(self))
         self.boton_reiniciar.clicked.connect(self.reiniciar_procesamiento)
         disposicion.addWidget(self.boton_reiniciar)
+
+        self.boton_histogramas_ampliados = QPushButton("Ver histogramas ampliados")
+        self.boton_histogramas_ampliados.setObjectName("botonSecundario")
+        self.boton_histogramas_ampliados.clicked.connect(self.mostrar_histogramas_ampliados)
+        disposicion.addWidget(self.boton_histogramas_ampliados)
 
         return barra
 
@@ -257,6 +269,7 @@ class VentanaLaboratorioRGB(QMainWindow):
             self.boton_guardar_binaria,
             self.deslizador_umbral,
             self.deslizador_reduccion,
+            self.boton_histogramas_ampliados,
         ):
             elemento.setEnabled(habilitada)
 
@@ -300,6 +313,7 @@ class VentanaLaboratorioRGB(QMainWindow):
             clave_canal: calcular_histograma(canal)
             for clave_canal, canal in self.canales_originales.items()
         }
+        self.histogramas_modificados = dict(self.histogramas_originales)
 
         self._procesamiento_suspendido = True
         for tarjeta_control in self.controles_canales.values():
@@ -351,6 +365,7 @@ class VentanaLaboratorioRGB(QMainWindow):
 
         inicio = perf_counter()
         self.canales_modificados = {}
+        self.histogramas_modificados = {}
 
         for clave_canal, canal in self.canales_originales.items():
             ajuste = self.controles_canales[clave_canal].ajustes_actuales()
@@ -358,6 +373,7 @@ class VentanaLaboratorioRGB(QMainWindow):
             self.canales_modificados[clave_canal] = canal_ajustado
 
             histograma_ajustado = calcular_histograma(canal_ajustado)
+            self.histogramas_modificados[clave_canal] = histograma_ajustado
             self.controles_canales[clave_canal].fijar_histogramas(
                 self.histogramas_originales[clave_canal],
                 histograma_ajustado,
@@ -401,6 +417,43 @@ class VentanaLaboratorioRGB(QMainWindow):
 
         milisegundos = (perf_counter() - inicio) * 1000.0
         self.etiqueta_estado.setText(f"Pipeline actualizado en {milisegundos:.1f} ms.")
+        self._actualizar_histogramas_ampliados()
+
+    def mostrar_histogramas_ampliados(self) -> None:
+        if self.imagen_original is None:
+            QMessageBox.warning(self, "Sin datos", "Primero carga una imagen.")
+            return
+
+        if self.ventana_histogramas_ampliados is None:
+            self.ventana_histogramas_ampliados = VentanaHistogramasAmpliados(self)
+
+        self._actualizar_histogramas_ampliados()
+        self.ventana_histogramas_ampliados.show()
+        self.ventana_histogramas_ampliados.raise_()
+        self.ventana_histogramas_ampliados.activateWindow()
+
+    def _actualizar_histogramas_ampliados(self) -> None:
+        if self.ventana_histogramas_ampliados is None or self.imagen_original is None:
+            return
+        self.ventana_histogramas_ampliados.actualizar_histogramas(
+            self.histogramas_originales,
+            self.histogramas_modificados or self.histogramas_originales,
+            self._resumenes_histogramas_ampliados(),
+        )
+
+    def _resumenes_histogramas_ampliados(self) -> dict[str, tuple[int, int, int, int, int]]:
+        resumenes: dict[str, tuple[int, int, int, int, int]] = {}
+        for clave_canal, canal in self.canales_originales.items():
+            canal_ajustado = self.canales_modificados.get(clave_canal, canal)
+            ajuste = self.controles_canales[clave_canal].ajustes_actuales()
+            resumenes[clave_canal] = (
+                int(canal.min()),
+                int(canal.max()),
+                ajuste.porcentaje_intensidad,
+                int(canal_ajustado.min()),
+                int(canal_ajustado.max()),
+            )
+        return resumenes
 
     def guardar_variante(self, variante: str) -> None:
         imagenes = {

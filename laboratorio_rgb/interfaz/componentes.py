@@ -7,9 +7,11 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -122,10 +124,11 @@ class TarjetaImagen(QFrame):
 
 
 class VistaHistograma(QWidget):
-    def __init__(self, color_acento: str) -> None:
+    def __init__(self, color_acento: str, mostrar_rangos_detallados: bool = False) -> None:
         super().__init__()
         self.setMinimumHeight(210)
         self._color_acento = QColor(color_acento)
+        self._mostrar_rangos_detallados = mostrar_rangos_detallados
         self._histograma_base = np.zeros(256, dtype=np.float32)
         self._histograma_ajustado = np.zeros(256, dtype=np.float32)
         self._vista_minima = 0.0
@@ -173,6 +176,8 @@ class VistaHistograma(QWidget):
         pintor.fillRect(rectangulo_externo, QColor("#111827"))
 
         conteo_minimo, conteo_maximo = self._rango_conteo_visible()
+        if self._mostrar_rangos_detallados:
+            self._dibujar_cuadricula(pintor, rectangulo_grafico, conteo_minimo, conteo_maximo)
         self._dibujar_histograma(
             pintor,
             rectangulo_grafico,
@@ -332,6 +337,10 @@ class VistaHistograma(QWidget):
         conteo_minimo: float,
         conteo_maximo: float,
     ) -> None:
+        if self._mostrar_rangos_detallados:
+            self._dibujar_rangos_detallados(pintor, rectangulo_grafico, conteo_minimo, conteo_maximo)
+            return
+
         pintor.setPen(QColor("#f9fafb"))
         pintor.drawText(
             QRectF(rectangulo_grafico.left(), rectangulo_grafico.bottom() + 2, 24, 16),
@@ -354,6 +363,58 @@ class VistaHistograma(QWidget):
                 Qt.AlignRight | Qt.AlignTop,
                 str(int(round(conteo_minimo))),
             )
+
+    def _dibujar_cuadricula(
+        self,
+        pintor: QPainter,
+        rectangulo_grafico: QRectF,
+        conteo_minimo: float,
+        conteo_maximo: float,
+    ) -> None:
+        pintor.save()
+        pintor.setPen(QPen(QColor(249, 250, 251, 32), 1))
+
+        for valor in self._valores_marcadores_x():
+            x = self._valor_a_x(valor, rectangulo_grafico)
+            pintor.drawLine(QPointF(x, rectangulo_grafico.top()), QPointF(x, rectangulo_grafico.bottom()))
+
+        for conteo in self._valores_marcadores_y(conteo_minimo, conteo_maximo):
+            y = self._conteo_a_y(conteo, rectangulo_grafico, conteo_minimo, conteo_maximo)
+            pintor.drawLine(QPointF(rectangulo_grafico.left(), y), QPointF(rectangulo_grafico.right(), y))
+
+        pintor.setPen(QPen(QColor("#e5e7eb"), 1.2))
+        pintor.drawRect(rectangulo_grafico)
+        pintor.restore()
+
+    def _dibujar_rangos_detallados(
+        self,
+        pintor: QPainter,
+        rectangulo_grafico: QRectF,
+        conteo_minimo: float,
+        conteo_maximo: float,
+    ) -> None:
+        pintor.save()
+        pintor.setPen(QColor("#f9fafb"))
+
+        for valor in self._valores_marcadores_x():
+            x = self._valor_a_x(valor, rectangulo_grafico)
+            pintor.drawLine(QPointF(x, rectangulo_grafico.bottom()), QPointF(x, rectangulo_grafico.bottom() + 5))
+            pintor.drawText(
+                QRectF(x - 24, rectangulo_grafico.bottom() + 7, 48, 18),
+                Qt.AlignCenter,
+                str(int(round(valor))),
+            )
+
+        for conteo in self._valores_marcadores_y(conteo_minimo, conteo_maximo):
+            y = self._conteo_a_y(conteo, rectangulo_grafico, conteo_minimo, conteo_maximo)
+            pintor.drawLine(QPointF(rectangulo_grafico.left() - 5, y), QPointF(rectangulo_grafico.left(), y))
+            pintor.drawText(
+                QRectF(rectangulo_grafico.left() - 58, y - 9, 50, 18),
+                Qt.AlignRight | Qt.AlignVCenter,
+                str(int(round(conteo))),
+            )
+
+        pintor.restore()
 
     def _dibujar_seleccion(self, pintor: QPainter, rectangulo_grafico: QRectF) -> None:
         if self._seleccion_inicio is None or self._seleccion_fin is None:
@@ -489,7 +550,21 @@ class VistaHistograma(QWidget):
 
     def _rectangulo_grafico(self) -> QRectF:
         rectangulo_externo = QRectF(self.rect().adjusted(4, 4, -4, -4))
+        if self._mostrar_rangos_detallados:
+            return rectangulo_externo.adjusted(68, 24, -18, -34)
         return rectangulo_externo.adjusted(10, 10, -10, -18)
+
+    def _valores_marcadores_x(self) -> list[float]:
+        if self._vista_maxima - self._vista_minima <= 4.0:
+            return [self._vista_minima, self._vista_maxima]
+        valores = np.linspace(self._vista_minima, self._vista_maxima, 6)
+        return [float(np.clip(valor, 0.0, 255.0)) for valor in valores]
+
+    @staticmethod
+    def _valores_marcadores_y(conteo_minimo: float, conteo_maximo: float) -> list[float]:
+        if conteo_maximo <= conteo_minimo:
+            return [conteo_minimo]
+        return [float(valor) for valor in np.linspace(conteo_minimo, conteo_maximo, 5)]
 
 
 @dataclass(slots=True)
@@ -621,3 +696,157 @@ class TarjetaControlCanal(QFrame):
         disposicion.addWidget(fila.deslizador, 1)
         disposicion.addWidget(fila.valor)
         return disposicion
+
+
+class EtiquetaVertical(QLabel):
+    def sizeHint(self) -> QSize:  # noqa: N802
+        tamano = super().sizeHint()
+        return QSize(tamano.height(), tamano.width())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        tamano = super().minimumSizeHint()
+        return QSize(tamano.height(), tamano.width())
+
+    def paintEvent(self, evento) -> None:  # noqa: N802
+        del evento
+        pintor = QPainter(self)
+        pintor.setRenderHint(QPainter.Antialiasing)
+        pintor.setPen(self.palette().color(self.foregroundRole()))
+        pintor.translate(0, self.height())
+        pintor.rotate(-90)
+        pintor.drawText(
+            QRectF(0, 0, self.height(), self.width()),
+            Qt.AlignCenter,
+            self.text(),
+        )
+
+
+class PanelHistogramaAmpliado(QFrame):
+    def __init__(self, clave_canal: str) -> None:
+        super().__init__()
+        self.clave_canal = clave_canal
+        datos_canal = DATOS_CANAL[clave_canal]
+        self.setObjectName("tarjeta")
+
+        disposicion = QVBoxLayout(self)
+        disposicion.setContentsMargins(16, 16, 16, 16)
+        disposicion.setSpacing(10)
+
+        titulo = QLabel(f"Histograma Canal {datos_canal['nombre']}")
+        titulo.setObjectName("tituloTarjeta")
+        titulo.setAlignment(Qt.AlignCenter)
+        disposicion.addWidget(titulo)
+
+        fila_grafico = QHBoxLayout()
+        fila_grafico.setContentsMargins(0, 0, 0, 0)
+        fila_grafico.setSpacing(8)
+
+        etiqueta_y = EtiquetaVertical("Cantidad de pixeles")
+        etiqueta_y.setObjectName("textoSecundario")
+        etiqueta_y.setAlignment(Qt.AlignCenter)
+        etiqueta_y.setFixedWidth(42)
+        fila_grafico.addWidget(etiqueta_y)
+
+        self.vista_histograma = VistaHistograma(datos_canal["color"], mostrar_rangos_detallados=True)
+        self.vista_histograma.setMinimumSize(560, 300)
+        fila_grafico.addWidget(self.vista_histograma, 1)
+        disposicion.addLayout(fila_grafico, 1)
+
+        etiqueta_x = QLabel("Intensidad (0-255)")
+        etiqueta_x.setObjectName("textoSecundario")
+        etiqueta_x.setAlignment(Qt.AlignCenter)
+        disposicion.addWidget(etiqueta_x)
+
+        fila_resumen = QGridLayout()
+        fila_resumen.setContentsMargins(42, 2, 0, 0)
+        fila_resumen.setHorizontalSpacing(12)
+        self.etiqueta_original = self._crear_etiqueta_resumen("Original", "-")
+        self.etiqueta_contraste = self._crear_etiqueta_resumen("Contraste tonal", "-")
+        self.etiqueta_salida = self._crear_etiqueta_resumen("Salida", "-")
+        fila_resumen.addWidget(self.etiqueta_original, 0, 0)
+        fila_resumen.addWidget(self.etiqueta_contraste, 0, 1)
+        fila_resumen.addWidget(self.etiqueta_salida, 0, 2)
+        fila_resumen.setColumnStretch(0, 1)
+        fila_resumen.setColumnStretch(1, 1)
+        fila_resumen.setColumnStretch(2, 1)
+        disposicion.addLayout(fila_resumen)
+
+    def fijar_histogramas(
+        self,
+        histograma_base: np.ndarray,
+        histograma_ajustado: np.ndarray,
+    ) -> None:
+        self.vista_histograma.fijar_histogramas(histograma_base, histograma_ajustado)
+
+    def fijar_resumen(
+        self,
+        minimo_original: int,
+        maximo_original: int,
+        porcentaje_intensidad: int,
+        minimo_salida: int,
+        maximo_salida: int,
+    ) -> None:
+        self.etiqueta_original.setText(self._texto_resumen("Original", f"{minimo_original}-{maximo_original}"))
+        self.etiqueta_contraste.setText(self._texto_resumen("Contraste tonal", f"{porcentaje_intensidad}%"))
+        self.etiqueta_salida.setText(self._texto_resumen("Salida", f"{minimo_salida}-{maximo_salida}"))
+
+    @staticmethod
+    def _crear_etiqueta_resumen(titulo: str, valor: str) -> QLabel:
+        etiqueta = QLabel(PanelHistogramaAmpliado._texto_resumen(titulo, valor))
+        etiqueta.setObjectName("textoSecundario")
+        etiqueta.setAlignment(Qt.AlignCenter)
+        etiqueta.setMinimumHeight(38)
+        return etiqueta
+
+    @staticmethod
+    def _texto_resumen(titulo: str, valor: str) -> str:
+        return f"<b>{titulo}</b><br>{valor}"
+
+
+class VentanaHistogramasAmpliados(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent, Qt.Window)
+        self.setWindowTitle("Histogramas ampliados RGB")
+        self.setMinimumSize(760, 620)
+        self.resize(1040, 740)
+
+        disposicion_ventana = QVBoxLayout(self)
+        disposicion_ventana.setContentsMargins(0, 0, 0, 0)
+
+        desplazamiento = QScrollArea()
+        desplazamiento.setWidgetResizable(True)
+        desplazamiento.setFrameShape(QFrame.NoFrame)
+        disposicion_ventana.addWidget(desplazamiento)
+
+        contenido = QWidget()
+        desplazamiento.setWidget(contenido)
+
+        disposicion = QGridLayout(contenido)
+        disposicion.setContentsMargins(18, 18, 18, 18)
+        disposicion.setHorizontalSpacing(14)
+        disposicion.setVerticalSpacing(22)
+
+        self.paneles: dict[str, PanelHistogramaAmpliado] = {}
+        for fila, clave_canal in enumerate(("R", "G", "B")):
+            panel = PanelHistogramaAmpliado(clave_canal)
+            panel.setMinimumHeight(455)
+            self.paneles[clave_canal] = panel
+            disposicion.addWidget(panel, fila, 0)
+            disposicion.setRowStretch(fila, 1)
+        disposicion.setColumnStretch(0, 1)
+
+    def actualizar_histogramas(
+        self,
+        histogramas_base: dict[str, np.ndarray],
+        histogramas_ajustados: dict[str, np.ndarray],
+        resumenes: dict[str, tuple[int, int, int, int, int]] | None = None,
+    ) -> None:
+        for clave_canal, panel in self.paneles.items():
+            if clave_canal not in histogramas_base or clave_canal not in histogramas_ajustados:
+                continue
+            panel.fijar_histogramas(
+                histogramas_base[clave_canal],
+                histogramas_ajustados[clave_canal],
+            )
+            if resumenes and clave_canal in resumenes:
+                panel.fijar_resumen(*resumenes[clave_canal])
