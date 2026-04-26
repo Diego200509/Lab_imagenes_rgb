@@ -173,7 +173,8 @@ class VistaHistograma(QWidget):
 
         rectangulo_externo = self.rect().adjusted(4, 4, -4, -4)
         rectangulo_grafico = self._rectangulo_grafico()
-        pintor.fillRect(rectangulo_externo, QColor("#111827"))
+        color_fondo = QColor("#ffffff") if self._mostrar_rangos_detallados else QColor("#111827")
+        pintor.fillRect(rectangulo_externo, color_fondo)
 
         conteo_minimo, conteo_maximo = self._rango_conteo_visible()
         if self._mostrar_rangos_detallados:
@@ -305,6 +306,18 @@ class VistaHistograma(QWidget):
         conteo_maximo: float,
         opacidad: float,
     ) -> None:
+        if self._mostrar_rangos_detallados:
+            self._dibujar_histograma_barras(
+                pintor,
+                rectangulo_grafico,
+                histograma,
+                color,
+                conteo_minimo,
+                conteo_maximo,
+                opacidad,
+            )
+            return
+
         pintor.save()
         pintor.setClipRect(rectangulo_grafico)
         color = QColor(color)
@@ -328,6 +341,42 @@ class VistaHistograma(QWidget):
         relleno.setAlphaF(opacidad * 0.3)
         pintor.fillPath(camino, relleno)
         pintor.drawPath(camino)
+        pintor.restore()
+
+    def _dibujar_histograma_barras(
+        self,
+        pintor: QPainter,
+        rectangulo_grafico: QRectF,
+        histograma: np.ndarray,
+        color: QColor,
+        conteo_minimo: float,
+        conteo_maximo: float,
+        opacidad: float,
+    ) -> None:
+        pintor.save()
+        pintor.setClipRect(rectangulo_grafico)
+
+        color_relleno = QColor(color)
+        color_relleno.setAlphaF(min(opacidad, 0.72))
+        color_borde = QColor(color)
+        color_borde.setAlphaF(min(opacidad + 0.12, 0.92))
+        pintor.setPen(QPen(color_borde, 1))
+
+        primer_valor = max(0, int(np.floor(self._vista_minima)))
+        ultimo_valor = min(255, int(np.ceil(self._vista_maxima)))
+        for valor in range(primer_valor, ultimo_valor + 1):
+            x_inicio = self._valor_a_x(valor - 0.5, rectangulo_grafico)
+            x_fin = self._valor_a_x(valor + 0.5, rectangulo_grafico)
+            x_inicio = float(np.clip(x_inicio, rectangulo_grafico.left(), rectangulo_grafico.right()))
+            x_fin = float(np.clip(x_fin, rectangulo_grafico.left(), rectangulo_grafico.right()))
+            ancho = max(1.0, x_fin - x_inicio)
+            y = self._conteo_a_y(float(histograma[valor]), rectangulo_grafico, conteo_minimo, conteo_maximo)
+            y = float(np.clip(y, rectangulo_grafico.top(), rectangulo_grafico.bottom()))
+            barra = QRectF(x_inicio, y, ancho, rectangulo_grafico.bottom() - y)
+            pintor.fillRect(barra, color_relleno)
+            if ancho >= 2.0:
+                pintor.drawLine(QPointF(x_inicio, y), QPointF(x_inicio, rectangulo_grafico.bottom()))
+
         pintor.restore()
 
     def _dibujar_etiquetas_ejes(
@@ -372,7 +421,7 @@ class VistaHistograma(QWidget):
         conteo_maximo: float,
     ) -> None:
         pintor.save()
-        pintor.setPen(QPen(QColor(249, 250, 251, 32), 1))
+        pintor.setPen(QPen(QColor("#d1d5db"), 1))
 
         for valor in self._valores_marcadores_x():
             x = self._valor_a_x(valor, rectangulo_grafico)
@@ -382,7 +431,7 @@ class VistaHistograma(QWidget):
             y = self._conteo_a_y(conteo, rectangulo_grafico, conteo_minimo, conteo_maximo)
             pintor.drawLine(QPointF(rectangulo_grafico.left(), y), QPointF(rectangulo_grafico.right(), y))
 
-        pintor.setPen(QPen(QColor("#e5e7eb"), 1.2))
+        pintor.setPen(QPen(QColor("#111827"), 1.2))
         pintor.drawRect(rectangulo_grafico)
         pintor.restore()
 
@@ -394,7 +443,7 @@ class VistaHistograma(QWidget):
         conteo_maximo: float,
     ) -> None:
         pintor.save()
-        pintor.setPen(QColor("#f9fafb"))
+        pintor.setPen(QColor("#111827"))
 
         for valor in self._valores_marcadores_x():
             x = self._valor_a_x(valor, rectangulo_grafico)
@@ -421,8 +470,12 @@ class VistaHistograma(QWidget):
             return
 
         seleccion = self._rectangulo_seleccion(rectangulo_grafico)
-        pintor.fillRect(seleccion, QColor(249, 250, 251, 58))
-        pintor.setPen(QPen(QColor("#f9fafb"), 1))
+        if self._mostrar_rangos_detallados:
+            pintor.fillRect(seleccion, QColor(37, 99, 235, 38))
+            pintor.setPen(QPen(QColor("#2563eb"), 1))
+        else:
+            pintor.fillRect(seleccion, QColor(249, 250, 251, 58))
+            pintor.setPen(QPen(QColor("#f9fafb"), 1))
         pintor.drawRect(seleccion)
 
     def _valor_a_x(self, valor: float, rectangulo_grafico: QRectF) -> float:
@@ -555,6 +608,8 @@ class VistaHistograma(QWidget):
         return rectangulo_externo.adjusted(10, 10, -10, -18)
 
     def _valores_marcadores_x(self) -> list[float]:
+        if self._vista_minima <= 0.0 and self._vista_maxima >= 255.0:
+            return [0.0, 50.0, 100.0, 150.0, 200.0, 255.0]
         if self._vista_maxima - self._vista_minima <= 4.0:
             return [self._vista_minima, self._vista_maxima]
         valores = np.linspace(self._vista_minima, self._vista_maxima, 6)
@@ -732,7 +787,7 @@ class PanelHistogramaAmpliado(QFrame):
         disposicion.setContentsMargins(16, 16, 16, 16)
         disposicion.setSpacing(10)
 
-        titulo = QLabel(f"Histograma Canal {datos_canal['nombre']}")
+        titulo = QLabel(f"Histograma del Canal {datos_canal['nombre']}")
         titulo.setObjectName("tituloTarjeta")
         titulo.setAlignment(Qt.AlignCenter)
         disposicion.addWidget(titulo)
@@ -741,7 +796,7 @@ class PanelHistogramaAmpliado(QFrame):
         fila_grafico.setContentsMargins(0, 0, 0, 0)
         fila_grafico.setSpacing(8)
 
-        etiqueta_y = EtiquetaVertical("Cantidad de pixeles")
+        etiqueta_y = EtiquetaVertical("Frecuencia de pixeles")
         etiqueta_y.setObjectName("textoSecundario")
         etiqueta_y.setAlignment(Qt.AlignCenter)
         etiqueta_y.setFixedWidth(42)
@@ -752,7 +807,7 @@ class PanelHistogramaAmpliado(QFrame):
         fila_grafico.addWidget(self.vista_histograma, 1)
         disposicion.addLayout(fila_grafico, 1)
 
-        etiqueta_x = QLabel("Intensidad (0-255)")
+        etiqueta_x = QLabel("Nivel de intensidad (0-255)")
         etiqueta_x.setObjectName("textoSecundario")
         etiqueta_x.setAlignment(Qt.AlignCenter)
         disposicion.addWidget(etiqueta_x)
