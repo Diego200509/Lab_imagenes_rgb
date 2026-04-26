@@ -386,7 +386,7 @@ class VentanaLaboratorioRGB(QMainWindow):
 
         self.tarjeta_reconstruida.mostrar_imagen(
             self.imagen_reconstruida,
-            "Canales R, G y B unidos despues de aplicar intensidades.",
+            "Canales R, G y B unidos despues de ajustar rangos tonales.",
         )
         self.tarjeta_reducida.mostrar_imagen(self.imagen_reducida, self._descripcion_reduccion())
         self.tarjeta_binaria.mostrar_imagen(
@@ -463,7 +463,7 @@ class VentanaLaboratorioRGB(QMainWindow):
         ajuste: AjusteCanal,
     ) -> str:
         return (
-            f"Intensidad {ajuste.porcentaje_intensidad}% | "
+            f"Contraste tonal {ajuste.porcentaje_intensidad}% | "
             f"Entrada {int(canal.min())}-{int(canal.max())} | "
             f"Salida {int(canal_ajustado.min())}-{int(canal_ajustado.max())}"
         )

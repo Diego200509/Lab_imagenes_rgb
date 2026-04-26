@@ -534,11 +534,11 @@ class TarjetaControlCanal(QFrame):
         self.vista_histograma = VistaHistograma(datos_canal["color"])
         disposicion.addWidget(self.vista_histograma, 1)
 
-        self.fila_intensidad = self._crear_fila_deslizador("Intensidad", 0, 200, 100)
+        self.fila_intensidad = self._crear_fila_deslizador("Contraste tonal", 0, 200, 100)
         disposicion.addLayout(self._disposicion_fila(self.fila_intensidad))
 
         self.etiqueta_informacion = QLabel(
-            "0 % apaga el canal, 100 % lo deja igual y 200 % duplica su intensidad."
+            "0 % comprime rangos, 100 % conserva el canal y 200 % expande contrastes."
         )
         self.etiqueta_informacion.setObjectName("textoSecundario")
         self.etiqueta_informacion.setWordWrap(True)
@@ -578,7 +578,7 @@ class TarjetaControlCanal(QFrame):
     ) -> None:
         self.etiqueta_informacion.setText(
             f"Original: {minimo_original}-{maximo_original} | "
-            f"Intensidad: {porcentaje_intensidad}% | "
+            f"Contraste tonal: {porcentaje_intensidad}% | "
             f"Salida: {minimo_salida}-{maximo_salida}"
         )
 

@@ -10,7 +10,7 @@ imagen final, reducirla y convertirla a blanco y negro.
 2. Muestra la imagen original y la imagen RGB reconstruida.
 3. Separa la imagen en tres matrices: R, G y B.
 4. Muestra cada canal separado en escala de grises.
-5. Calcula histogramas por canal y permite ajustar cada intensidad.
+5. Calcula histogramas por canal y permite ajustar rangos tonales.
 6. Reconstruye la imagen con los canales ajustados.
 7. Reduce la imagen reconstruida por porcentaje.
 8. Convierte la imagen reducida a blanco y negro usando un umbral.
@@ -52,16 +52,19 @@ Cuando se separa un canal, queda una sola matriz con valores de 0 a 255. Por
 eso el canal separado se muestra en escala de grises: los pixeles claros tienen
 mayor intensidad de ese canal y los oscuros tienen menor intensidad.
 
-El slider aplica un factor porcentual:
+El slider aplica una tabla de transformacion tonal por canal. Con 100 % la
+tabla es identidad; por debajo de 100 % comprime los niveles hacia el centro y
+por encima de 100 % usa una curva en S para expandir contrastes sin recortar
+masivamente valores a 255.
 
 ```text
-canal_modificado = canal_original * (intensidad / 100)
+canal_modificado = tabla_tonal[canal_original]
 ```
 
-Luego se limita el resultado al rango valido:
+El histograma se calcula manualmente sobre la matriz resultante:
 
 ```text
-0 <= valor <= 255
+histograma[intensidad] = cantidad de pixeles con esa intensidad
 ```
 
 La imagen final vuelve a tener color cuando se apilan de nuevo las tres matrices:
